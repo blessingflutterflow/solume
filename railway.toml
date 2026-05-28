@@ -1,5 +1,5 @@
 [build]
-buildCommand = "pnpm --filter @solune/api build"
+buildCommand = "pnpm --filter @solune/db generate && node_modules/.bin/tsc -p packages/types/tsconfig.json && node_modules/.bin/tsc -p packages/db/tsconfig.json && pnpm --filter @solune/api build"
 
 [deploy]
 startCommand = "node apps/api/dist/main.js"

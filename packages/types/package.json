@@ -2,8 +2,13 @@
   "name": "@solune/types",
   "version": "0.0.1",
   "private": true,
-  "main": "./src/index.ts",
+  "scripts": {
+    "build": "tsc"
+  },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   }
 }

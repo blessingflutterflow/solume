@@ -2,8 +2,8 @@
   "name": "@solune/db",
   "version": "0.0.1",
   "private": true,
-  "type": "module",
   "scripts": {
+    "build": "tsc",
     "generate": "prisma generate",
     "migrate:dev": "prisma migrate dev",
     "db:push": "prisma db push",
@@ -16,6 +16,9 @@
     "prisma": "^5.22.0"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   }
 }
