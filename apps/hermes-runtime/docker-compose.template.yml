@@ -1,0 +1,37 @@
+# Hermes Runtime — single-container compose template
+#
+# This file is the reference template. The provisioning service generates a
+# rendered version of this and writes it to /opt/solune/docker-compose.yml on
+# each client's EC2 instance during Step 4.
+#
+# Variables substituted at provision time:
+#   ${ECR_REGISTRY}          — AWS ECR registry URL
+#   ${IMAGE_TAG}             — pinned hermes-runtime image tag (e.g. v0.51.150)
+#   ${HERMES_WEBUI_PASSWORD} — per-instance auto-generated password (stored in DB)
+#   ${HERMES_HOME_PATH}      — host path for persisted hermes config (/opt/solune/hermes)
+#
+# Port 8787 is intentionally exposed on all interfaces but the EC2 security group
+# restricts inbound 8787 to the Solune API security group only — not the internet.
+
+services:
+  hermes:
+    image: ${ECR_REGISTRY}/solune/hermes-runtime:${IMAGE_TAG}
+    ports:
+      - "8787:8787"
+    environment:
+      - HERMES_WEBUI_HOST=0.0.0.0
+      - HERMES_WEBUI_PORT=8787
+      - HERMES_WEBUI_PASSWORD=${HERMES_WEBUI_PASSWORD}
+      - HERMES_HOME=/hermes-home
+      - HERMES_WEBUI_STATE_DIR=/hermes-home/webui
+      - WANTED_UID=1000
+      - WANTED_GID=1000
+    volumes:
+      - ${HERMES_HOME_PATH}:/hermes-home
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8787/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3

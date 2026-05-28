@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Copy-Item \"c:\\\\Users\\\\My Pc\\\\Desktop\\\\solune\\\\.env\" \"c:\\\\Users\\\\My Pc\\\\Desktop\\\\solune\\\\apps\\\\api\\\\.env\")",
+      "Bash(npx next *)"
+    ]
+  }
+}

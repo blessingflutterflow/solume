@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id             String        @id @default(cuid())
+  businessName   String
+  billingEmail   String
+  phone          String?
+  vatNumber      String?
+  address        String?
+  plan           Plan          @default(STARTER)
+  status         AccountStatus @default(PENDING)
+  instance       Instance?
+  config         ClientConfig?
+  billingRecords BillingRecord[]
+  auditLogs      AuditLog[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Instance {
+  id                   String           @id @default(cuid())
+  accountId            String           @unique
+  account              Account          @relation(fields: [accountId], references: [id])
+  awsInstanceId        String?
+  publicIp             String?
+  privateIp            String?
+  hermesWebUiPassword  String?
+  region               String           @default("af-south-1")
+  subdomain            String?
+  state                InstanceState    @default(PENDING)
+  lastHealthCheck      DateTime?
+  provisionedAt        DateTime?
+  provisioningJobs     ProvisioningJob[]
+}
+
+model ProvisioningJob {
+  id            String    @id @default(cuid())
+  instanceId    String
+  instance      Instance  @relation(fields: [instanceId], references: [id])
+  status        JobStatus @default(PENDING)
+  currentStep   Int       @default(0)
+  stepLog       Json      @default("[]")
+  startedAt     DateTime?
+  completedAt   DateTime?
+  failedAt      DateTime?
+  failureReason String?
+  createdAt     DateTime  @default(now())
+}
+
+model BillingRecord {
+  id                String        @id @default(cuid())
+  accountId         String
+  account           Account       @relation(fields: [accountId], references: [id])
+  amount            Int
+  currency          String        @default("ZAR")
+  paystackReference String?
+  status            BillingStatus @default(PENDING)
+  invoicePdfUrl     String?
+  billedAt          DateTime      @default(now())
+}
+
+model ClientConfig {
+  id              String   @id @default(cuid())
+  accountId       String   @unique
+  account         Account  @relation(fields: [accountId], references: [id])
+  systemPrompt    String?
+  agentTone       String?
+  businessHours   String?
+  faq             Json     @default("[]")
+  services        Json     @default("[]")
+  whatsappEnabled Boolean  @default(false)
+  whatsappNumber  String?
+  telegramEnabled Boolean  @default(false)
+  webChatEnabled  Boolean  @default(true)
+  embedToken      String?
+  version         Int      @default(1)
+  updatedAt       DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id])
+  actorType String
+  action    String
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now())
+}
+
+enum Plan {
+  STARTER
+  PRO
+  PREMIUM
+}
+
+enum AccountStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+enum InstanceState {
+  PENDING
+  PROVISIONING
+  RUNNING
+  STOPPED
+  TERMINATED
+  FAILED
+}
+
+enum JobStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+enum BillingStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
