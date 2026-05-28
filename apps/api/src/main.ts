@@ -6,14 +6,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.enableCors({
-    origin: [
-      "http://localhost:3000",
-      "http://localhost:3002",
-      "https://solune-admin.vercel.app",
-      "https://solune-client.vercel.app",
-      "https://solume-admin.vercel.app",
-      "https://solume-client.vercel.app",
-    ],
+    origin: true,
     credentials: true,
   });
 
