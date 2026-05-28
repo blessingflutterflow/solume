@@ -1,0 +1,5 @@
+[build]
+buildCommand = "pnpm --filter @solune/api build"
+
+[deploy]
+startCommand = "node apps/api/dist/main.js"
