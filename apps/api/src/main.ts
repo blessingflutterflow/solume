@@ -11,6 +11,8 @@ async function bootstrap() {
       "http://localhost:3002",
       "https://solune-admin.vercel.app",
       "https://solune-client.vercel.app",
+      "https://solume-admin.vercel.app",
+      "https://solume-client.vercel.app",
     ],
     credentials: true,
   });
