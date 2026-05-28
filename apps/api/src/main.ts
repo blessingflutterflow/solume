@@ -9,6 +9,8 @@ async function bootstrap() {
     origin: [
       "http://localhost:3000",
       "http://localhost:3002",
+      "https://solune-admin.vercel.app",
+      "https://solune-client.vercel.app",
     ],
     credentials: true,
   });
