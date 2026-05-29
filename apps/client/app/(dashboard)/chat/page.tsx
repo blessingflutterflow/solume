@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import useSWR from "swr";
 import { api } from "@/lib/api";
-import { Send, Bot, User, Loader2, AlertCircle, MessageSquare } from "lucide-react";
+import { Send, Bot, User, AlertCircle, MessageSquare } from "lucide-react";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
@@ -23,7 +24,44 @@ function parseSseBlock(block: string): { type: string; data: string } | null {
   return data ? { type, data } : null;
 }
 
+function HermesStatus({ state }: { state?: string }) {
+  if (state === "RUNNING") return (
+    <div className="flex items-center gap-2">
+      <span className="relative flex h-2.5 w-2.5">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400" />
+      </span>
+      <span className="text-emerald-400 text-xs font-medium">Online</span>
+    </div>
+  );
+  if (state === "PROVISIONING") return (
+    <div className="flex items-center gap-2">
+      <span className="relative flex h-2.5 w-2.5">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-400" />
+      </span>
+      <span className="text-blue-400 text-xs font-medium">Setting up…</span>
+    </div>
+  );
+  if (state === "FAILED") return (
+    <div className="flex items-center gap-2">
+      <span className="inline-flex rounded-full h-2.5 w-2.5 bg-rose-400" />
+      <span className="text-rose-400 text-xs font-medium">Error</span>
+    </div>
+  );
+  return (
+    <div className="flex items-center gap-2">
+      <span className="inline-flex rounded-full h-2.5 w-2.5 bg-[#5a5a5a]" />
+      <span className="text-[#5a5a5a] text-xs">Offline</span>
+    </div>
+  );
+}
+
 export default function ChatPage() {
+  const { data: account } = useSWR("/client/me", () => api.get<any>("/client/me"), { refreshInterval: 30000 });
+  const agentState = account?.instance?.state;
+  const isReady = agentState === "RUNNING";
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -185,22 +223,42 @@ export default function ChatPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-6 py-5 border-b border-[#2a2a2a] shrink-0">
-        <h1 className="text-white text-lg font-semibold">Chat with Hermes</h1>
-        <p className="text-[#888888] text-sm mt-0.5">
-          Talk directly to your AI agent
-        </p>
+      <div className="px-6 py-5 border-b border-[#2a2a2a] shrink-0 flex items-center justify-between">
+        <div>
+          <h1 className="text-white text-lg font-semibold">Chat with Hermes</h1>
+          <p className="text-[#888888] text-sm mt-0.5">Talk directly to your AI agent</p>
+        </div>
+        <HermesStatus state={agentState} />
       </div>
 
       {/* Message thread */}
       <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
         {messages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center py-16">
-            <MessageSquare size={32} className="text-[#2a2a2a] mb-3" />
-            <p className="text-[#888888] text-sm">Send a message to start talking to Hermes.</p>
-            <p className="text-[#555555] text-xs mt-1">
-              Hermes handles your WhatsApp, calendar, and customer conversations.
-            </p>
+            {!isReady && agentState ? (
+              <>
+                <div className="w-12 h-12 rounded-full bg-[#1a1a1a] border border-[#2a2a2a] flex items-center justify-center mb-4">
+                  <Bot size={20} className="text-[#5a5a5a]" />
+                </div>
+                <p className="text-[#888888] text-sm font-medium">
+                  {agentState === "PROVISIONING" ? "Your agent is being set up…" : "Your agent is currently offline."}
+                </p>
+                <p className="text-[#555555] text-xs mt-1">
+                  {agentState === "PROVISIONING" ? "This usually takes 5–10 minutes. Come back shortly." : "Contact support if this persists."}
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="w-12 h-12 rounded-full bg-[#faff69]/10 border border-[#faff69]/20 flex items-center justify-center mb-4">
+                  <Bot size={20} className="text-[#faff69]" />
+                </div>
+                <MessageSquare size={0} className="hidden" />
+                <p className="text-[#888888] text-sm">Send a message to start talking to Hermes.</p>
+                <p className="text-[#555555] text-xs mt-1">
+                  Hermes handles your WhatsApp, calendar, and customer conversations.
+                </p>
+              </>
+            )}
           </div>
         ) : (
           messages.map((msg, i) => (
@@ -262,8 +320,9 @@ export default function ChatPage() {
             value={input}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-            placeholder="Message Hermes… (Enter to send, Shift+Enter for new line)"
-            className="flex-1 bg-[#1a1a1a] border border-[#2a2a2a] rounded-[8px] px-4 py-2.5 text-sm text-white placeholder-[#444444] resize-none focus:outline-none focus:border-[#faff69] transition-colors"
+            disabled={!isReady}
+            placeholder={isReady ? "Message Hermes… (Enter to send, Shift+Enter for new line)" : "Agent is not online…"}
+            className="flex-1 bg-[#1a1a1a] border border-[#2a2a2a] rounded-[8px] px-4 py-2.5 text-sm text-white placeholder-[#444444] resize-none focus:outline-none focus:border-[#faff69] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ minHeight: "42px", maxHeight: "160px" }}
             rows={1}
           />
@@ -279,7 +338,7 @@ export default function ChatPage() {
           ) : (
             <button
               onClick={send}
-              disabled={!input.trim()}
+              disabled={!input.trim() || !isReady}
               className="w-10 h-10 bg-[#faff69] text-[#0a0a0a] rounded-[8px] flex items-center justify-center shrink-0 hover:bg-[#e6eb52] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               <Send size={16} />
