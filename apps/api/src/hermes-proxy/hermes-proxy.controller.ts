@@ -23,6 +23,17 @@ export class HermesProxyController {
     return { synced: true };
   }
 
+  // Combined chat — starts a turn AND streams the response in one request.
+  // Eliminates the race condition between chatStart + chatStream.
+  @Post("chat")
+  chat(
+    @Req() req: Request & { user: any },
+    @Res() res: Response,
+    @Body() body: unknown,
+  ) {
+    return this.proxy.chat((req as any).user.sub, body, res);
+  }
+
   // SSE stream — pipes hermes-webui's event stream to the browser.
   // Uses @Res() to take manual control of the response lifecycle.
   // ClientGuard validates the JWT before this runs; after that the response

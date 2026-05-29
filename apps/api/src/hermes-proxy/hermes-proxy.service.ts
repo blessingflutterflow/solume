@@ -151,6 +151,92 @@ export class HermesProxyService {
     return res.json() as Promise<{ stream_id: string }>;
   }
 
+  // ─── Combined chat (start + stream in one request) ──────────────────────────
+
+  // Starts a chat turn and immediately pipes the SSE stream back to the browser
+  // in the same HTTP response. Eliminates the race condition between two separate
+  // chatStart + chatStream calls.
+  async chat(accountId: string, body: unknown, res: Response): Promise<void> {
+    const instance = await this.resolveInstance(accountId);
+    const cookie = await this.acquireSession(instance.id, instance.publicIp, instance.hermesWebUiPassword);
+    const sessionId = await this.acquireHermesSession(accountId, instance.publicIp, cookie);
+
+    const payload = { ...(body as object), session_id: sessionId };
+
+    const startRes = await fetch(`http://${instance.publicIp}:8787/api/chat/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Cookie": cookie },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (startRes.status === 401) {
+      this.invalidateSession(instance.id);
+      return this.chat(accountId, body, res);
+    }
+
+    if (!startRes.ok) {
+      const text = await startRes.text().catch(() => "");
+      if (text.includes("Session not found")) {
+        this.hermesSessionIds.delete(accountId);
+        return this.chat(accountId, body, res);
+      }
+      res.status(500).json({ message: `chat/start failed: ${text}` });
+      return;
+    }
+
+    const { stream_id } = await startRes.json() as { stream_id: string };
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Transfer-Encoding", "chunked");
+    res.flushHeaders();
+
+    const upstream = await fetch(
+      `http://${instance.publicIp}:8787/api/chat/stream?stream_id=${encodeURIComponent(stream_id)}`,
+      { headers: { "Cookie": cookie, "Accept": "text/event-stream", "Cache-Control": "no-cache" } },
+    );
+
+    if (!upstream.ok || !upstream.body) {
+      res.write(`event: error\ndata: ${JSON.stringify({ message: `Upstream error: ${upstream.status}` })}\n\n`);
+      res.end();
+      return;
+    }
+
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    const FORWARD_EVENTS = new Set(["token", "done", "error"]);
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() ?? "";
+        for (const block of blocks) {
+          if (!block.trim()) continue;
+          let eventType = "message";
+          let dataLine = "";
+          for (const line of block.split("\n")) {
+            if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+            else if (line.startsWith("data: ")) dataLine = line.slice(6).trim();
+          }
+          if (!FORWARD_EVENTS.has(eventType)) continue;
+          res.write(`event: ${eventType}\ndata: ${dataLine}\n\n`);
+          if (typeof (res as any).flush === "function") (res as any).flush();
+        }
+      }
+    } catch (err: any) {
+      this.logger.error(`[proxy] chat stream error: ${err.message}`);
+    } finally {
+      try { res.end(); } catch { /* ignore */ }
+    }
+  }
+
   // ─── SSE stream proxy ───────────────────────────────────────────────────────
 
   async streamChat(accountId: string, streamId: string, req: Request, res: Response): Promise<void> {

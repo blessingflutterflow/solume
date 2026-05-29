@@ -122,23 +122,20 @@ export default function ChatPage() {
     abortRef.current = controller;
 
     try {
-      const { stream_id } = await api.post<{ stream_id: string }>("/client/hermes/chat/start", {
-        message: text,
-        session_id: "solune-default",
-      });
-
       const token = typeof window !== "undefined" ? localStorage.getItem("solune_client_token") : null;
 
-      const res = await fetch(
-        `${BASE}/api/client/hermes/chat/stream?stream_id=${encodeURIComponent(stream_id)}`,
-        {
-          headers: {
-            Authorization: token ? `Bearer ${token}` : "",
-            Accept: "text/event-stream",
-          },
-          signal: controller.signal,
+      // Single request — starts the turn and streams the response back together.
+      // Eliminates the race condition of separate start + stream calls.
+      const res = await fetch(`${BASE}/api/client/hermes/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token ? `Bearer ${token}` : "",
+          Accept: "text/event-stream",
         },
-      );
+        body: JSON.stringify({ message: text }),
+        signal: controller.signal,
+      });
 
       if (res.status === 401) {
         if (typeof window !== "undefined") {
