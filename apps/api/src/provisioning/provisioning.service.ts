@@ -139,6 +139,7 @@ export class ProvisioningService {
       imageTag: HERMES_IMAGE_TAG,
       hermesWebUiPassword: password,
       region: instance.region,
+      openRouterApiKey: this.config.get("OPENROUTER_API_KEY", ""),
     });
 
     const command = new RunInstancesCommand({
@@ -326,8 +327,9 @@ export class ProvisioningService {
     imageTag: string;
     hermesWebUiPassword: string;
     region: string;
+    openRouterApiKey: string;
   }): string {
-    const { instanceId, ecrRegistry, imageTag, hermesWebUiPassword, region } = opts;
+    const { instanceId, ecrRegistry, imageTag, hermesWebUiPassword, region, openRouterApiKey } = opts;
     const image = ecrRegistry ? `${ecrRegistry}/solune/hermes-runtime:${imageTag}` : `solune/hermes-runtime:${imageTag}`;
 
     return `#!/bin/bash
@@ -348,11 +350,28 @@ snap install amazon-ssm-agent --classic
 systemctl enable snap.amazon-ssm-agent.amazon-ssm-agent.service
 systemctl start snap.amazon-ssm-agent.amazon-ssm-agent.service
 
-# Hermes home directory on host — mounted into the container
-# chown to UID/GID 1000 so the hermeswebui user inside the container can write to it
-HERMES_HOME=/opt/solune/hermes
-mkdir -p "$HERMES_HOME/webui"
-chown -R 1000:1000 /opt/solune/hermes
+# Hermes home — mounted at /home/hermeswebui/.hermes inside the container
+# Must be owned by UID/GID 1000 (hermeswebui user)
+HERMES_HOST_DIR=/opt/solune/hermes
+mkdir -p "$HERMES_HOST_DIR/webui"
+
+# Install Hermes Agent into the host mount dir so the container finds it
+export HOME=/root
+curl -fsSL https://hermes-agent.nousresearch.com/install.sh | HERMES_HOME="$HERMES_HOST_DIR" bash
+
+# Write Hermes LLM config
+cat > "$HERMES_HOST_DIR/.env" << 'ENV_EOF'
+OPENROUTER_API_KEY=${openRouterApiKey}
+ENV_EOF
+
+cat > "$HERMES_HOST_DIR/config.yaml" << 'CFG_EOF'
+model:
+  default: anthropic/claude-sonnet-4-6
+  provider: openrouter
+  base_url: https://openrouter.ai/api/v1
+CFG_EOF
+
+chown -R 1000:1000 "$HERMES_HOST_DIR"
 
 # Write docker-compose
 mkdir -p /opt/solune
@@ -366,12 +385,14 @@ services:
       - HERMES_WEBUI_HOST=0.0.0.0
       - HERMES_WEBUI_PORT=8787
       - HERMES_WEBUI_PASSWORD=${hermesWebUiPassword}
-      - HERMES_HOME=/hermes-home
-      - HERMES_WEBUI_STATE_DIR=/hermes-home/webui
+      - HERMES_HOME=/home/hermeswebui/.hermes
+      - HERMES_WEBUI_STATE_DIR=/home/hermeswebui/.hermes/webui
+      - HERMES_WEBUI_AGENT_DIR=/home/hermeswebui/.hermes/hermes-agent
+      - HERMES_WEBUI_SKIP_ONBOARDING=1
       - WANTED_UID=1000
       - WANTED_GID=1000
     volumes:
-      - /opt/solune/hermes:/hermes-home
+      - /opt/solune/hermes:/home/hermeswebui/.hermes
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8787/health"]
