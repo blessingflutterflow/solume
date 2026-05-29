@@ -237,7 +237,7 @@ export class HermesProxyService {
           commands: [
             `mkdir -p /opt/solune/hermes`,
             `echo "${encoded}" | base64 -d > /opt/solune/hermes/config.yaml`,
-            `cd /opt/solune && docker compose restart hermes`,
+            `cd /opt/solune && docker-compose restart hermes`,
           ],
         },
       }),

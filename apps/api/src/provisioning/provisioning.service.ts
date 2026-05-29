@@ -338,7 +338,7 @@ set -euo pipefail
 # Runs on first boot via EC2 UserData
 
 apt-get update -y
-apt-get install -y --no-install-recommends docker.io docker-compose-plugin curl awscli snapd
+apt-get install -y --no-install-recommends docker.io docker-compose curl awscli snapd
 
 systemctl enable docker
 systemctl start docker
@@ -384,8 +384,8 @@ aws ecr get-login-password --region ${region} | docker login --username AWS --pa
 ` : ""}
 # Pull and start
 cd /opt/solune
-docker compose pull
-docker compose up -d
+docker-compose pull
+docker-compose up -d
 
 echo "Solune Hermes Runtime started" >> /var/log/solune-bootstrap.log
 `;
