@@ -12,9 +12,11 @@ interface CachedSession {
 @Injectable()
 export class HermesProxyService {
   private readonly logger = new Logger(HermesProxyService.name);
-  // Per-instance session cache — hermes-webui sessions last 30 days; we refresh at 29
+  // Per-instance cookie cache — hermes-webui auth sessions last 30 days; we refresh at 29
   private readonly sessions = new Map<string, CachedSession>();
   private readonly SESSION_TTL_MS = 29 * 24 * 60 * 60 * 1000;
+  // Per-account hermes conversation session IDs (persistent chat context)
+  private readonly hermesSessionIds = new Map<string, string>();
 
   constructor(
     private prisma: PrismaService,
@@ -81,11 +83,43 @@ export class HermesProxyService {
     this.sessions.delete(instanceId);
   }
 
+  // ─── Hermes conversation session ─────────────────────────────────────────────
+
+  // Hermes-webui requires a conversation session to exist before chat/start.
+  // We create one per account on first use and cache it in memory.
+  // Sessions persist on disk inside the container so they survive restarts.
+  private async acquireHermesSession(accountId: string, publicIp: string, cookie: string): Promise<string> {
+    const cached = this.hermesSessionIds.get(accountId);
+    if (cached) return cached;
+
+    this.logger.log(`[proxy] Creating Hermes session for account ${accountId}`);
+
+    const res = await fetch(`http://${publicIp}:8787/api/session/new`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Cookie": cookie },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      throw new Error(`session/new failed (${res.status}) for account ${accountId}`);
+    }
+
+    const data = await res.json() as { session: { session_id: string } };
+    const sessionId = data.session.session_id;
+    this.hermesSessionIds.set(accountId, sessionId);
+    this.logger.log(`[proxy] Hermes session created: ${sessionId}`);
+    return sessionId;
+  }
+
   // ─── Chat start ─────────────────────────────────────────────────────────────
 
   async chatStart(accountId: string, body: unknown): Promise<{ stream_id: string }> {
     const instance = await this.resolveInstance(accountId);
     const cookie = await this.acquireSession(instance.id, instance.publicIp, instance.hermesWebUiPassword);
+    const sessionId = await this.acquireHermesSession(accountId, instance.publicIp, cookie);
+
+    const payload = { ...(body as object), session_id: sessionId };
 
     const res = await fetch(`http://${instance.publicIp}:8787/api/chat/start`, {
       method: "POST",
@@ -94,7 +128,7 @@ export class HermesProxyService {
         "Cookie": cookie,
         // No Origin/Referer — keeps CSRF check from triggering for server-to-server calls
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(30_000),
     });
 
@@ -106,6 +140,11 @@ export class HermesProxyService {
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
+      // If the session was not found (e.g. container restarted), clear cached session and retry
+      if (text.includes("Session not found")) {
+        this.hermesSessionIds.delete(accountId);
+        return this.chatStart(accountId, body);
+      }
       throw new Error(`chat/start failed (${res.status}): ${text}`);
     }
 
@@ -171,16 +210,36 @@ export class HermesProxyService {
       const reader = upstream.body.getReader();
       const decoder = new TextDecoder();
 
-      // Pipe chunks directly — preserves SSE framing (event/data/id lines) as-is
+      // Parse SSE stream and forward only relevant events to the browser.
+      // Hermes emits: token (response text), reasoning (internal thinking),
+      // metering (stats), context_status, done, error.
+      // We forward: token, done, error — drop everything else.
+      const FORWARD_EVENTS = new Set(["token", "done", "error"]);
+      let buffer = "";
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        res.write(chunk);
+        buffer += decoder.decode(value, { stream: true });
 
-        // Flush to browser after each chunk so tokens appear immediately
-        if (typeof (res as any).flush === "function") (res as any).flush();
+        // SSE blocks are separated by double newline
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() ?? "";
+
+        for (const block of blocks) {
+          if (!block.trim()) continue;
+          let eventType = "message";
+          let dataLine = "";
+          for (const line of block.split("\n")) {
+            if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+            else if (line.startsWith("data: ")) dataLine = line.slice(6).trim();
+          }
+          if (!FORWARD_EVENTS.has(eventType)) continue;
+          const out = `event: ${eventType}\ndata: ${dataLine}\n\n`;
+          res.write(out);
+          if (typeof (res as any).flush === "function") (res as any).flush();
+        }
       }
     } catch (err: any) {
       if (err.name !== "AbortError") {
