@@ -175,7 +175,8 @@ export class HermesProxyService {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no"); // disable nginx buffering if in front
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Transfer-Encoding", "chunked");
     res.flushHeaders();
 
     try {
@@ -185,9 +186,11 @@ export class HermesProxyService {
         "Cache-Control": "no-cache",
       };
 
-      // Forward Last-Event-ID so hermes-webui can replay missed events on reconnect
+      // Start from the beginning so we never miss events even if stream opens slightly late
+      upstreamHeaders["Last-Event-ID"] = "0";
+      // Also honour browser reconnect replays
       const lastEventId = req.headers["last-event-id"];
-      if (lastEventId) upstreamHeaders["Last-Event-ID"] = String(lastEventId);
+      if (lastEventId && lastEventId !== "0") upstreamHeaders["Last-Event-ID"] = String(lastEventId);
 
       const upstream = await fetch(
         `http://${instance.publicIp}:8787/api/chat/stream?stream_id=${encodeURIComponent(streamId)}`,
