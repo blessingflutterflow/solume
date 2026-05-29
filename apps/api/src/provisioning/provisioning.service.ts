@@ -349,8 +349,10 @@ systemctl enable snap.amazon-ssm-agent.amazon-ssm-agent.service
 systemctl start snap.amazon-ssm-agent.amazon-ssm-agent.service
 
 # Hermes home directory on host — mounted into the container
+# chown to UID/GID 1000 so the hermeswebui user inside the container can write to it
 HERMES_HOME=/opt/solune/hermes
 mkdir -p "$HERMES_HOME/webui"
+chown -R 1000:1000 /opt/solune/hermes
 
 # Write docker-compose
 mkdir -p /opt/solune
