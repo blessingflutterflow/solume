@@ -196,6 +196,11 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                   <RotateCcw size={12} /> Reboot
                 </button>
               </>)}
+              {inst.state === "FAILED" && (
+                <button onClick={() => action("provision")} className="inline-flex items-center gap-2 h-8 px-3 bg-[#faff69] text-[#0a0a0a] text-xs font-semibold rounded-[6px] hover:bg-[#e6eb52] transition-colors">
+                  <Zap size={12} /> Retry Provisioning
+                </button>
+              )}
               {["RUNNING","STOPPED","FAILED"].includes(inst.state) && (
                 <button onClick={() => action("terminate")} className="inline-flex items-center gap-2 h-8 px-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-[6px] hover:bg-rose-500/20 transition-colors ml-auto">
                   <Trash2 size={12} /> Terminate
